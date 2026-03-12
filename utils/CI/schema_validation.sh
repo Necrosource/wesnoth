@@ -79,9 +79,30 @@ validate_campaign() {
 }
 
 RET=0
+PATCH_APPLIED=0
+
+cleanup_patch() {
+    local exit_code="$1"
+
+    if [ "$PATCH_APPLIED" -eq 1 ]; then
+        if ! patch -R -p 1 < utils/CI/schema_validation.patch > /dev/null 2>&1; then
+            error "Failed to revert schema_validation.patch; please revert it manually."
+            exit_code=1
+        fi
+    fi
+
+    trap - EXIT
+    exit "$exit_code"
+}
+
+trap 'cleanup_patch $?' EXIT
 
 # remove any_tag to actually see errors in action WML
-patch -p 1 < utils/CI/schema_validation.patch || RET=1
+if patch -p 1 < utils/CI/schema_validation.patch; then
+    PATCH_APPLIED=1
+else
+    RET=1
+fi
 
 validate_schema "WML Schema"   "schema"       || RET=1
 validate_schema "Game Config"  "game_config"  || RET=1
@@ -131,4 +152,4 @@ validate_campaign "Two_Brothers"               "CAMPAIGN_TWO_BROTHERS"          
 validate_campaign "Under_the_Burning_Suns"     "CAMPAIGN_UNDER_THE_BURNING_SUNS"  "EASY" "NORMAL" "HARD"             || RET=1
 validate_campaign "Winds_of_Fate"              "CAMPAIGN_WINDS_OF_FATE"           "EASY" "NORMAL" "HARD" "NIGHTMARE" || RET=1
 
-exit $RET
+exit "$RET"
