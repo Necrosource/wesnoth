@@ -30,6 +30,7 @@
 #include "team.hpp"
 #include "terrain/type_data.hpp"
 #include "units/unit.hpp"
+#include "video.hpp"
 
 static lg::log_domain log_display("display");
 #define DBG_DP LOG_STREAM(debug, log_display)
@@ -53,10 +54,37 @@ std::function<rect(rect)> prep_minimap_for_rendering(
 
 	const int scale = (preferences_minimap_draw_terrain && preferences_minimap_terrain_coding) ? 24 : 4;
 
-	DBG_DP << "Creating minimap: " << static_cast<int>(map.w() * scale * 0.75) << ", " << map.h() * scale;
+	// Query the GPU's maximum texture dimensions so we never try to allocate
+	// a texture larger than the renderer supports.  A common limit is 16 384 px;
+	// with scale=24 a map of 683 rows already needs 16 392 px and SDL_CreateTexture
+	// silently fails, leaving the minimap blank.
+	int max_texture_w = 16384;
+	int max_texture_h = 16384;
+	if(SDL_Renderer* renderer = video::get_renderer()) {
+		SDL_RendererInfo rinfo;
+		if(SDL_GetRendererInfo(renderer, &rinfo) == 0) {
+			if(rinfo.max_texture_width  > 0) max_texture_w = rinfo.max_texture_width;
+			if(rinfo.max_texture_height > 0) max_texture_h = rinfo.max_texture_height;
+		}
+	}
 
-	const std::size_t map_width  = static_cast<std::size_t>(std::max(0, map.w())) * scale * 3 / 4;
-	const std::size_t map_height = static_cast<std::size_t>(std::max(0, map.h())) * scale;
+	// Find the largest integer scale that keeps both axes within the GPU limit.
+	// We step down from the preferred scale until we fit or reach 1.
+	int effective_scale = scale;
+	while(effective_scale > 1) {
+		const std::size_t w = static_cast<std::size_t>(std::max(0, map.w())) * effective_scale * 3 / 4;
+		const std::size_t h = static_cast<std::size_t>(std::max(0, map.h())) * effective_scale;
+		if(w <= static_cast<std::size_t>(max_texture_w) && h <= static_cast<std::size_t>(max_texture_h)) {
+			break;
+		}
+		--effective_scale;
+	}
+
+	DBG_DP << "Creating minimap: " << static_cast<int>(map.w() * effective_scale * 0.75) << ", " << map.h() * effective_scale
+	       << " (preferred scale " << scale << ", effective scale " << effective_scale << ")";
+
+	const std::size_t map_width  = static_cast<std::size_t>(std::max(0, map.w())) * effective_scale * 3 / 4;
+	const std::size_t map_height = static_cast<std::size_t>(std::max(0, map.h())) * effective_scale;
 
 	// No map!
 	if(map_width == 0 || map_height == 0) {
@@ -83,12 +111,12 @@ std::function<rect(rect)> prep_minimap_for_rendering(
 	// Gets a destination rect for drawing at the given coordinates.
 	// We need a balanced shift up and down of the hexes.
 	// If not, only the bottom half-hexes are clipped and it looks asymmetrical.
-	const auto get_dst_rect = [scale](const map_location& loc) {
+	const auto get_dst_rect = [effective_scale](const map_location& loc) {
 		return rect {
-			loc.x * scale             * 3 / 4                    - (scale / 4),
-			loc.y * scale + scale / 4 * (is_odd(loc.x) ? 1 : -1) - (scale / 4),
-			scale,
-			scale
+			loc.x * effective_scale             * 3 / 4                                        - (effective_scale / 4),
+			loc.y * effective_scale + effective_scale / 4 * (is_odd(loc.x) ? 1 : -1) - (effective_scale / 4),
+			effective_scale,
+			effective_scale
 		};
 	};
 
@@ -204,7 +232,7 @@ std::function<rect(rect)> prep_minimap_for_rendering(
 						}
 					}
 
-					dest.w = scale * 3 / 4;
+					dest.w = effective_scale * 3 / 4;
 					draw::fill(dest, col);
 				}
 			});
@@ -245,7 +273,7 @@ std::function<rect(rect)> prep_minimap_for_rendering(
 				}
 
 				rect dest = get_dst_rect(loc);
-				dest.w = scale * 3 / 4;
+				dest.w = effective_scale * 3 / 4;
 
 				draw::fill(dest, col);
 			}
@@ -281,7 +309,7 @@ std::function<rect(rect)> prep_minimap_for_rendering(
 				}
 
 				rect fillrect = get_dst_rect(u_loc);
-				fillrect.w = scale * 3 / 4;
+				fillrect.w = effective_scale * 3 / 4;
 
 				draw::fill(fillrect, col);
 			}
