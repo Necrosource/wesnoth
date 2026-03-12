@@ -301,6 +301,11 @@ void story_viewer::display_part()
 	text_label.set_text_alpha(0);
 	text_label.set_label(part_text);
 
+	// Invalidate the window layout so that geometry is fully recalculated
+	// for each page. Without this, a label whose height changed due to line
+	// wrapping on a previous page will keep its old cached size.
+	get_window()->invalidate_layout();
+
 	// Regenerate any background blur texture
 	panel_canvas.queue_reblur();
 
