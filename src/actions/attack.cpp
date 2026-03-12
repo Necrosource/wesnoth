@@ -98,7 +98,7 @@ battle_context_unit_stats::battle_context_unit_stats(nonempty_unit_const_ptr up,
 	, disable(false)
 	, leadership_bonus(0)
 	, experience(up->experience())
-	, max_experience(up->max_experience())
+	, max_experience(up->can_advance() ? up->max_experience() : std::numeric_limits<unsigned int>::max())
 	, level(up->level())
 	, rounds(1)
 	, hp(0)
