@@ -28,6 +28,7 @@
 #include "preferences/preferences.hpp"
 #include "resources.hpp"
 #include "team.hpp"
+#include "video.hpp"
 #include "terrain/type_data.hpp"
 #include "units/unit.hpp"
 
@@ -51,7 +52,30 @@ std::function<rect(rect)> prep_minimap_for_rendering(
 	const bool preferences_minimap_draw_units     = prefs::get().minimap_draw_units();
 	const bool preferences_minimap_unit_coding    = prefs::get().minimap_movement_coding();
 
-	const int scale = (preferences_minimap_draw_terrain && preferences_minimap_terrain_coding) ? 24 : 4;
+	int scale = (preferences_minimap_draw_terrain && preferences_minimap_terrain_coding) ? 24 : 4;
+
+	// Clamp scale so the intermediate texture doesn't exceed the renderer's
+	// maximum texture dimensions (e.g. 16384x16384 on most GPUs).
+	// map_width  = map.w() * scale * 3/4
+	// map_height = map.h() * scale
+	if(map.w() > 0 && map.h() > 0) {
+		SDL_Renderer* renderer = video::get_renderer();
+		if(renderer) {
+			SDL_RendererInfo info;
+			if(SDL_GetRendererInfo(renderer, &info) == 0
+				&& info.max_texture_width > 0
+				&& info.max_texture_height > 0)
+			{
+				// Maximum scale that keeps width within limit:
+				// map.w() * scale * 3/4 <= max_w  =>  scale <= max_w * 4 / (map.w() * 3)
+				const int max_scale_w = info.max_texture_width  * 4 / (map.w() * 3);
+				// Maximum scale that keeps height within limit:
+				// map.h() * scale <= max_h  =>  scale <= max_h / map.h()
+				const int max_scale_h = info.max_texture_height / map.h();
+				scale = std::max(1, std::min({scale, max_scale_w, max_scale_h}));
+			}
+		}
+	}
 
 	DBG_DP << "Creating minimap: " << static_cast<int>(map.w() * scale * 0.75) << ", " << map.h() * scale;
 
